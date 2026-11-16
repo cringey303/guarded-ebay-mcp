@@ -1,0 +1,6 @@
+{
+  "items": {
+    "110012345678": {"title": "Supreme Camp Cap Black", "cost": "52.30", "acquired": "2026-01-10"},
+    "110012345679": {"title": "Supreme Overdyed Beanie Red", "cost": "48.10", "acquired": "2025-08-14", "aged_ok": true, "floor_override": "60.00"}
+  }
+}

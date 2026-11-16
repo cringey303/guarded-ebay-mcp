@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guarded-ebay-mcp"
+version = "1.0.0"
+description = "MCP server that lets Claude manage eBay resale listings behind code-enforced pricing guardrails"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]   # read from requirements.txt, the single list of direct dependencies
+
+[project.scripts]
+guarded-ebay-mcp = "ebay_mcp.server:main"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "tests"]
+testpaths = ["tests"]

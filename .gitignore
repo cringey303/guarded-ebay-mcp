@@ -1,5 +1,31 @@
+# Secrets: these never belong in the repo
 .env
 *.env
+!.env.example
+costs.json
+*service-account*.json
+sheets-reader.json
+*.pem
+*.key
+
+# Local state
 *.db
-__pycache__/
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python
 .venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

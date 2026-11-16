@@ -1,0 +1,11 @@
+.git
+.venv
+tests
+**/__pycache__
+*.db
+*.env
+.env
+costs.json
+*.json
+!costs.example.json
+.pytest_cache
