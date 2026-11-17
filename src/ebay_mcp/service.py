@@ -101,18 +101,22 @@ class ResaleService:
     async def get_order_fees(self, order_id: str) -> dict:
         order = await self.rest.get_order(order_id)
         fees = summarize_fees(await self.rest.get_order_transactions(order_id))
+        cols = fees["fee_columns"]
+        tax = Decimal(order["ebay_collected_tax"])
         sheet = {
             "K_sale_date": (order.get("created") or "")[:10],
             "L_platform": "eBay",
-            "M_sold_price": order["item_subtotal"],
-            "N_transaction_fees": fees["transaction_fees"],
-            "O_tax": order["ebay_collected_tax"],
+            "M_sold_price": str(money(Decimal(order["item_subtotal"]) + tax)),
+            "N_transaction_fees": cols["fees"],
+            "O_tax": str(money(tax + Decimal(cols["tax"]))),
             "P_shipping_paid": order["buyer_shipping_paid"],
-            "Q_payment_processing": "0.00",
+            "Q_payment_processing": cols["processing"],
             "R_label_cost": fees["label_cost"],
         }
         notes = ["K is the order date in UTC.",
-                 "eBay has no separate payment processing fee; it is inside the final value fee, so Q is 0.00."]
+                 "M includes the tax eBay collected and O holds that tax, so S = M-N-Q-O+P-R nets it out.",
+                 "Fees are sorted by eBay fee type: only fees that say tax go in O, payment or processing "
+                 "fees go in Q, everything else goes in N."]
         if fees["label_cost"] is None:
             notes.append("No eBay label charge found for this order yet (or the label was not bought through eBay).")
         if "REFUND" in fees["transaction_types"]:
@@ -391,6 +395,6 @@ class ResaleService:
                 old.get("depth_in"), old.get("package_type"), allow_unusual_weight=True, reason=reason,
                 _undoes=int(audit_id))
         else:
-            raise GuardrailError("Sent offers cannot be undone; they expire after 2 days.")
+            raise GuardrailError("Only price and package changes can be undone. Sent offers expire after 2 days.")
         out["undoes_audit_id"] = int(audit_id)
         return out

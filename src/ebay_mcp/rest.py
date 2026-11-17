@@ -52,6 +52,17 @@ def summarize_order(o: dict) -> dict:
     }
 
 
+def fee_column(fee_type) -> str:
+    """Which sheet column an eBay fee belongs in: "tax" only for fees that say tax, "processing"
+    for payment or processing fees, "fees" (Transaction Fees) for everything else."""
+    name = str(fee_type or "").upper()
+    if "TAX" in name:
+        return "tax"
+    if "PAYMENT" in name or "PROCESSING" in name:
+        return "processing"
+    return "fees"
+
+
 def summarize_fees(transactions: list[dict]) -> dict:
     """Turn Finances getTransactions output for one order into fee/label totals."""
     fees = Decimal(0)
@@ -74,8 +85,17 @@ def summarize_fees(transactions: list[dict]) -> dict:
             label += sign * _amt(t.get("amount"))  # voided label refunds come back as CREDIT
         elif typ == "NON_SALE_CHARGE":
             other += sign * _amt(t.get("amount"))  # e.g. promoted listing fee tied to the order
+    # Sort the fees into sheet columns by fee type. If the breakdown does not add up to the
+    # total, count the whole total as transaction fees.
+    columns = {"fees": Decimal(0), "processing": Decimal(0), "tax": Decimal(0)}
+    if sum(by_type.values(), Decimal(0)) == fees:
+        for k, v in by_type.items():
+            columns[fee_column(k)] += v
+    else:
+        columns["fees"] = fees
     return {
         "transaction_fees": str(money(fees)),
+        "fee_columns": {k: str(money(v)) for k, v in columns.items()},
         "fee_breakdown": {k: str(money(v)) for k, v in by_type.items()},
         "label_cost": str(money(label)) if any(t.get("transactionType") == "SHIPPING_LABEL" for t in transactions) else None,
         "other_order_charges": str(money(other)),
@@ -90,11 +110,18 @@ class RestClient:
         self.mkt = {"X-EBAY-C-MARKETPLACE-ID": settings.marketplace_id}
 
     async def get_orders(self, days: int = 30, limit: int = 50) -> list[dict]:
+        return [summarize_order(o) for o in await self.get_orders_raw(days, limit)]
+
+    async def get_orders_raw(self, days: int = 30, limit: int = 50) -> list[dict]:
+        """Full order objects. They include buyer details, so they stay inside the server
+        (the sale logger uses them) and are never returned to Claude."""
         since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         r = await self.http.request("fulfillment", "GET", f"{self.s.urls['api']}/sell/fulfillment/v1/order",
                                     params={"filter": f"creationdate:[{since}..]", "limit": str(limit)})
+        if r.status_code == 204:
+            return []
         raise_for_rest(r)
-        return [summarize_order(o) for o in r.json().get("orders", [])]
+        return r.json().get("orders", [])
 
     async def get_order(self, order_id: str) -> dict:
         oid = validate_order_id(order_id)

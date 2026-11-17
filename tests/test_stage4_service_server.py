@@ -256,7 +256,7 @@ class ReadTests(unittest.IsolatedAsyncioTestCase):
         svc, *_ = make_service()
         out = await svc.get_order_fees("12-34567-89012")
         self.assertEqual(out["sheet_values"], {
-            "K_sale_date": "2026-10-20", "L_platform": "eBay", "M_sold_price": "70.00",
+            "K_sale_date": "2026-10-20", "L_platform": "eBay", "M_sold_price": "75.60",  # price + tax
             "N_transaction_fees": "10.97", "O_tax": "5.60", "P_shipping_paid": "6.25",
             "Q_payment_processing": "0.00", "R_label_cost": "5.49"})
         self.assertEqual(out["fees"]["fee_breakdown"]["FINAL_VALUE_FEE"], "10.57")
