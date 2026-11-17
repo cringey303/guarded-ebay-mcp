@@ -23,9 +23,11 @@ Read [LEARNING.md](LEARNING.md).
 | `get_order_fees(order_id)` | Exact transaction fees, fee breakdown and label cost, mapped to sheet columns K-R | No |
 | `search_comps(query)` | Active listings with min, median and max delivered price. These are asking prices, not sold prices. | No |
 
-`get_order_fees` returns `sheet_values` for your sheet: K sale date, L "eBay", M sold price,
-N transaction fees, O tax, P shipping paid, Q 0.00, R label cost (SHIPPING_LABEL debits minus
-voided-label credits).
+`get_order_fees` returns `sheet_values` for your sheet: K sale date, L "eBay", M sold price
+plus the tax eBay collected, N transaction fees, O tax, P shipping paid, Q payment processing
+fees, R label cost (SHIPPING_LABEL debits minus voided-label credits). Fees are sorted by eBay's
+fee type: only fees that say tax go in O, payment or processing fees go in Q, and everything
+else (final value fee, per-order fee, promoted listing fee) goes in N.
 
 ## Architecture
 
@@ -37,6 +39,7 @@ server.py    tool definitions, annotations (confirm_change = destructive), error
 service.py   preview -> change_id -> confirm_change -> re-read live listing -> re-check rules -> write -> audit
    |-- pricing.py   pure Decimal math: fee model, exact break-even, floor rules, typo guard, weight limits
    |-- costs.py     cost from your Google Sheet (read-only service account) or a local costs.json
+   |-- gsheets.py   Google Sheets REST client: service account token, read a range, write cells
    |-- store.py     SQLite: pending previews (15 min, single use), audit log, daily API call counts
    |-- trading.py   Trading API XML: GetMyeBaySelling, GetItem, ReviseInventoryStatus, ReviseFixedPriceItem
    `-- rest.py      Fulfillment (orders), Finances (fees, labels), Negotiation (offers), Browse (comps)
@@ -45,6 +48,8 @@ service.py   preview -> change_id -> confirm_change -> re-read live listing -> r
        auth.py      refresh token -> 2-hour access token (memory only); application token for Browse
        config.py    settings from env vars or an env file outside the repo; secrets wrapped so they never print
        remote.py    optional HTTP mode: JWT validation, refuses to start without OAuth
+
+sales_log.py   separate command: logs eBay sales into the sheet (dry run unless --write)
 ```
 
 Your listings were created on the website and app, not with the Inventory API, so all listing
@@ -196,9 +201,16 @@ Write costs as strings (`"52.30"`).
 
 **Production, Google Sheet tab "Lucas Resell":**
 
-1. Add three columns: **V** eBay Item ID, **W** Aged (`Y` allows a loss after 12 months),
-   **X** Floor override (optional minimum price). The server also reads A (date), B (item),
-   I (total cost) and J (status). Every letter is configurable with `EBAY_MCP_SHEET_*_COL`.
+1. Add four columns, with headers in row 2: **AB** eBay Item ID, **AC** Aged (`Y` allows a loss
+   after 12 months), **AD** Floor override (optional minimum price), **AE** eBay Order ID (written
+   by the sale logger). The tab has 30 columns (A to AD), so add one column at the end for AE.
+   V to Y hold the totals block and the reimbursement columns, Z is the source (Gmail message ID,
+   MANUAL_ENTRY or CLAUDE) and AA is the "CLAUDE" edit marker, so none of those are used for this.
+   Format AB and AE as plain text so Sheets never turns an ID into a number or a date.
+   The server also reads A (date), B (item), I (total cost) and J (status). Every letter is
+   configurable with `EBAY_MCP_SHEET_*_COL`.
+   - One row per physical item. A multi-quantity listing (three identical thermals) puts the
+     same item ID on all three rows. Each colour listed separately gets its own item ID.
 2. In Google Cloud: create a project, enable the Google Sheets API, create a service account
    (no roles needed), and download a JSON key to `~/.ebay-mcp/sheets-reader.json`.
 3. Share the spreadsheet with the service account's email as **Viewer**.
@@ -246,6 +258,62 @@ always ask.
 5. Set `EBAY_MCP_WRITES_ENABLED=true` and restart Claude Desktop. Start with one
    `update_package_weight` fix, then one small price change, then `undo_change` it to prove the
    rollback path.
+
+## Sale logger
+
+`python -m ebay_mcp.sales_log` writes eBay sales into the sheet. It is a script, not an MCP tool,
+so it runs the same way every time. **It is a dry run unless you pass `--write`, and it writes to
+the "Lucas Resell Test" tab until you set `EBAY_MCP_LOG_TAB` to something else on purpose.**
+
+```bash
+# show exactly which cells it would write for the last 14 days of orders
+EBAY_MCP_ENV_FILE=~/.ebay-mcp/prod.env .venv/Scripts/python -m ebay_mcp.sales_log
+# one order only
+EBAY_MCP_ENV_FILE=~/.ebay-mcp/prod.env .venv/Scripts/python -m ebay_mcp.sales_log --order 12-34567-89012
+# write after showing the plan (asks y/N first)
+EBAY_MCP_ENV_FILE=~/.ebay-mcp/prod.env .venv/Scripts/python -m ebay_mcp.sales_log --write
+```
+
+For each paid order, oldest first:
+
+1. **Already logged?** If the order ID is in column AE, the order is skipped. Running it twice
+   never logs a sale twice.
+2. **Which rows.** For every unit sold, it marks the oldest unsold row (by purchase date in A)
+   with that eBay item ID in AB and status Listed. Rows marked Personal, Nigel, Inventory,
+   Expired or Sold are never picked. Row numbers come from reading the sheet, never from config.
+3. **What it writes** on each row: J `Sold`, K sale date (m/d/yyyy, Pacific time), L `eBay`,
+   M sold price, N transaction fees, O tax, P shipping paid by the buyer, Q payment processing
+   fees, R label cost, your
+   formulas S `=M-N-Q-O+P-R`, T `=S-I`, U `=T/I`, and the order ID in AE. Column Z is never
+   overwritten: if Z is empty it gets `CLAUDE`; if Z has a Gmail message ID or MANUAL_ENTRY,
+   AA gets `CLAUDE`. Columns A to I are never written.
+4. **Money.** A multi-quantity sale is split across its rows to the cent. Shipping, label and
+   order-level charges (such as a promoted listing fee) are split evenly across the units in
+   the order; price, tax and fees follow each line item. Each eBay fee goes in the closest
+   column by its fee type: only fees that say tax go in O, payment or processing fees go in Q,
+   everything else goes in N. eBay folds payment processing into the final value fee, so Q is
+   usually 0.00. M includes the tax eBay collected and O holds that tax, so your S formula nets
+   it out (set `EBAY_MCP_LOG_TAX_IN_PRICE=false` to write M without tax and O without it).
+5. **Reconcile.** The net it would write (S, summed over the order) must equal eBay's payout for
+   the sale minus the label and other charges, within a cent. If not, the order is reported as
+   "needs review" and nothing is written.
+6. **Waiting and skipping.** Orders without an eBay label yet are "waiting" and get logged on a
+   later run. Unpaid or cancelled orders are skipped. Orders with a refund or dispute, or with
+   fewer matching Listed rows than units sold, are "needs review" and must be logged by hand.
+   An order is never half written.
+7. **Writing.** With `--write` it re-reads the sheet first and refuses if any target row moved or
+   changed since the plan (for example if you inserted a row). All cells go in one request, and
+   every written row is recorded in the audit log (`recent_changes`).
+
+The logger uses its own key, `GOOGLE_SHEETS_WRITER_FILE`, shared with the sheet as **Editor**.
+The cost reader keeps its read-only key. Google cannot restrict a key to one tab, which is why
+the columns the logger may write are enforced in code (`LogConfig.writable`), and why moving the
+resell tab into its own spreadsheet is worth doing before the logger touches the real tab.
+`EBAY_MCP_LOG_SHEET_ID` lets you point the logger at a different spreadsheet.
+
+**Going live with it:** log a few real sales to the test tab with `--write` and check each one:
+the right row is marked Sold, and N, R and S match the order's earnings in Seller Hub. Only then
+set `EBAY_MCP_LOG_TAB="Lucas Resell"`.
 
 ## Remote hosting (optional)
 
@@ -311,7 +379,12 @@ Finances 2000, Negotiation 500, Browse 2000) are counted in SQLite and can be ch
   Confirm those in the sandbox first. If labels are missing, the Finances API also has
   `getOrderEarningsById`, which is the fallback.
 * The Negotiation API does not support listings managed with the Inventory API. Yours are not, so this is fine.
-* Variation listings (one listing, several sizes) and auctions are refused.
+* Variation listings (one listing, several sizes or colours) and auctions are refused.
+  Backlog: support variations with one SKU per variation, revised through ReviseInventoryStatus.
+* The sale logger assumes eBay's SALE transaction `amount` is the payout before the label (price
+  plus buyer shipping minus fees, tax excluded). If that is wrong, every order comes back "needs
+  review" with both numbers shown, and nothing is written. The test tab runs settle this.
+* The sale logger does not handle returns or partial refunds after a sale was logged.
 * Floors assume buyer-paid shipping roughly equals the label cost (both default to 0 in the
   math). eBay still charges its fee on the shipping the buyer pays, about $0.87 on a $6 label.
   Set `ASSUMED_BUYER_SHIPPING` and `ASSUMED_LABEL_COST` in `pricing.py` if you want that in the floor.

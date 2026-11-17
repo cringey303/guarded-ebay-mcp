@@ -150,6 +150,37 @@ Classic JWT attacks the tests cover:
 
 The mode refuses to start without OAuth, and DNS rebinding protection checks the Host header.
 
+### `src/ebay_mcp/gsheets.py`
+A small Google Sheets client over plain HTTPS: it signs a JWT with the service account key,
+trades it for an access token, reads ranges and writes cells. The cost reader and the sale
+logger share it. Two keys exist on purpose: a read-only one for costs and an editor one for the
+logger, so the part that runs most often can never write.
+
+### `src/ebay_mcp/sales_log.py`
+The sale logger. It is a plain script because logging has exactly one right answer for each
+order, so judgment (an LLM) would only add ways to be wrong. Ideas worth explaining:
+
+* **Plan, then act.** It builds the full list of cell writes first and prints it (dry run is the
+  default). That is the same two-phase idea as preview and confirm in the server.
+* **Idempotency.** The eBay order ID is written into the row. A second run sees it and skips the
+  order, so a crash or a rerun can never log a sale twice.
+* **No hardcoded row numbers.** Rows are found by content (item ID, status, purchase date), and
+  just before writing the sheet is read again. If any target row changed, it refuses. This is
+  the same time-of-check versus time-of-use problem as price drift.
+* **Atomic orders.** An order is planned completely or not at all, and written in one request.
+  A half-logged order is worse than an unlogged one, because it looks done.
+* **Reconciliation.** Splitting money across units can drift by a cent, so it uses a
+  largest-remainder split that always adds up exactly, then checks the total against eBay's own
+  payout number. Disagreement stops the write. Checking your output against an independent
+  source is how financial code catches its own bugs.
+* **Allowlisted columns.** The code refuses to write any column outside the sale columns and the
+  marker columns, and never writes a non-empty Z. Defense in depth: even a bug in the planner
+  cannot overwrite purchase data or the Gmail message IDs your purchase script depends on.
+* **Fees by type.** eBay labels every fee with a type (FINAL_VALUE_FEE, AD_FEE and so on).
+  `fee_column` in rest.py maps each type to the closest sheet column: only types that say tax go
+  in Tax, payment or processing types go in Payment processing fees, the rest are Transaction
+  Fees. One small rule shared by the MCP tool and the logger keeps both writing the same thing.
+
 ### `scripts/get_refresh_token.py`
 The one-time consent flow. It writes the refresh token into the env file by replacing the line,
 creating the file with private permissions from the start.
