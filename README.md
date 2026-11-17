@@ -304,9 +304,12 @@ Finances 2000, Negotiation 500, Browse 2000) are counted in SQLite and can be ch
   published OpenAPI specs and Trading reference: the Negotiation rules (5% minimum, 2 days, no
   counteroffers, 2,000 character message, one listing per request), the Finances and Fulfillment
   paths, filters and scopes, and the package fields (whole inches, whole pounds and ounces).
+  The OAuth flow is confirmed too (endpoints, Basic header, refresh request, 2-hour access
+  tokens, refresh tokens of 47,304,000 seconds, about 18 months).
   Not confirmed from the docs: whether the Finances `orderId` filter returns SHIPPING_LABEL
-  transactions, the OAuth token lifetimes, and the Trading API error codes for an expired token.
-  Confirm those in the sandbox first.
+  transactions, and the header and scope for OAuth tokens on Trading API calls.
+  Confirm those in the sandbox first. If labels are missing, the Finances API also has
+  `getOrderEarningsById`, which is the fallback.
 * The Negotiation API does not support listings managed with the Inventory API. Yours are not, so this is fine.
 * Variation listings (one listing, several sizes) and auctions are refused.
 * Floors assume buyer-paid shipping roughly equals the label cost (both default to 0 in the
