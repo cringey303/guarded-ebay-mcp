@@ -265,7 +265,7 @@ ROWS = [
 
 class CostSourceTests(unittest.IsolatedAsyncioTestCase):
     def test_rows_to_records(self):
-        recs = records_from_rows(ROWS)
+        recs = records_from_rows(ROWS, item_col="V", aged_col="W", floor_col="X")
         self.assertEqual(sorted(recs), ["123456789012", "888888888888"])
         r = recs["123456789012"]
         self.assertEqual(r.cost, D("50.00"))  # same item on two rows: the highest cost wins
@@ -285,6 +285,9 @@ class CostSourceTests(unittest.IsolatedAsyncioTestCase):
 
     def test_parsers(self):
         self.assertEqual(parse_item_id(123456789012.0), "123456789012")
+        self.assertEqual(parse_item_id(D("123456789012")), "123456789012")
+        self.assertIsNone(parse_item_id(D("12345678901.5")))
+        self.assertEqual(parse_date(D("45931")), date(2025, 10, 1))
         self.assertIsNone(parse_item_id("123</ItemID>"))
         self.assertIsNone(parse_item_id(True))
         self.assertEqual(parse_date("10/1/2025"), date(2025, 10, 1))
@@ -320,8 +323,8 @@ class CostSourceTests(unittest.IsolatedAsyncioTestCase):
                  "", "", "", "", "", "", "", "", "", "", "", 123456789012, "Y"]]}).encode())
 
         now = [time.time()]
-        src = SheetsCostSource("sheet-id-1234567890", "Lucas Resell", f.name,
-                               transport=httpx.MockTransport(handler), clock=lambda: now[0])
+        src = SheetsCostSource("sheet-id-1234567890", "Lucas Resell", f.name, item_col="V", aged_col="W",
+                               floor_col="X", transport=httpx.MockTransport(handler), clock=lambda: now[0])
         r = await src.get("123456789012")
         self.assertEqual((r.cost, r.aged_ok, r.acquired), (D("48.1"), True, date(2025, 10, 1)))
         self.assertIsNone(await src.get("555555555555"))

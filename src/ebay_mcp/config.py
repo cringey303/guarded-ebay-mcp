@@ -154,10 +154,20 @@ class Settings:
     sheet_title_col: str = "B"
     sheet_cost_col: str = "I"
     sheet_status_col: str = "J"
-    sheet_item_id_col: str = "V"
-    sheet_aged_col: str = "W"
-    sheet_floor_col: str = "X"
+    sheet_item_id_col: str = "AB"
+    sheet_aged_col: str = "AC"
+    sheet_floor_col: str = "AD"
     google_sa_file: str = ""
+    # sale logger (writes sales into a tab; defaults to the TEST tab on purpose)
+    log_sheet_id: str = ""
+    log_tab: str = "Lucas Resell Test"
+    log_statuses: frozenset = frozenset({"listed"})
+    log_tax_in_price: bool = True
+    log_timezone: str = "America/Los_Angeles"
+    sheet_source_col: str = "Z"
+    sheet_edited_col: str = "AA"
+    sheet_order_col: str = "AE"
+    google_sa_writer_file: str = ""
     # rate limits
     daily_limits: dict = field(default_factory=_default_daily_limits)
     requests_per_second: float = 2.0
@@ -217,10 +227,20 @@ class Settings:
             sheet_title_col=_col(e, "EBAY_MCP_SHEET_TITLE_COL", "B"),
             sheet_cost_col=_col(e, "EBAY_MCP_SHEET_COST_COL", "I"),
             sheet_status_col=_col(e, "EBAY_MCP_SHEET_STATUS_COL", "J"),
-            sheet_item_id_col=_col(e, "EBAY_MCP_SHEET_ITEMID_COL", "V"),
-            sheet_aged_col=_col(e, "EBAY_MCP_SHEET_AGED_COL", "W"),
-            sheet_floor_col=_col(e, "EBAY_MCP_SHEET_FLOOR_COL", "X"),
+            sheet_item_id_col=_col(e, "EBAY_MCP_SHEET_ITEMID_COL", "AB"),
+            sheet_aged_col=_col(e, "EBAY_MCP_SHEET_AGED_COL", "AC"),
+            sheet_floor_col=_col(e, "EBAY_MCP_SHEET_FLOOR_COL", "AD"),
             google_sa_file=e.get("GOOGLE_SERVICE_ACCOUNT_FILE", ""),
+            log_sheet_id=(e.get("EBAY_MCP_LOG_SHEET_ID") or e.get("EBAY_MCP_SHEET_ID") or "").strip(),
+            log_tab=e.get("EBAY_MCP_LOG_TAB") or "Lucas Resell Test",
+            log_statuses=frozenset(x.strip().lower() for x in (e.get("EBAY_MCP_LOG_STATUSES") or "Listed").split(",")
+                                   if x.strip()),
+            log_tax_in_price=_bool(e.get("EBAY_MCP_LOG_TAX_IN_PRICE"), True),
+            log_timezone=e.get("EBAY_MCP_LOG_TZ") or "America/Los_Angeles",
+            sheet_source_col=_col(e, "EBAY_MCP_SHEET_SOURCE_COL", "Z"),
+            sheet_edited_col=_col(e, "EBAY_MCP_SHEET_EDITED_COL", "AA"),
+            sheet_order_col=_col(e, "EBAY_MCP_SHEET_ORDER_COL", "AE"),
+            google_sa_writer_file=e.get("GOOGLE_SHEETS_WRITER_FILE", ""),
             daily_limits=limits,
             transport=(e.get("EBAY_MCP_TRANSPORT") or "stdio").strip().lower(),
             host=e.get("EBAY_MCP_HOST") or "127.0.0.1",
@@ -234,6 +254,9 @@ class Settings:
         )
         if s.cost_source == "sheets" and not (s.sheet_id and s.google_sa_file):
             raise ConfigError("Sheets cost source needs EBAY_MCP_SHEET_ID and GOOGLE_SERVICE_ACCOUNT_FILE")
-        if s.sheet_id and not re.match(r"^[A-Za-z0-9_-]{10,100}$", s.sheet_id):
-            raise ConfigError("EBAY_MCP_SHEET_ID does not look like a spreadsheet ID")
+        for name, value in (("EBAY_MCP_SHEET_ID", s.sheet_id), ("EBAY_MCP_LOG_SHEET_ID", s.log_sheet_id)):
+            if value and not re.match(r"^[A-Za-z0-9_-]{10,100}$", value):
+                raise ConfigError(f"{name} does not look like a spreadsheet ID")
+        if not s.log_statuses or "sold" in s.log_statuses:
+            raise ConfigError("EBAY_MCP_LOG_STATUSES must list statuses to log sales on, and never Sold")
         return s
