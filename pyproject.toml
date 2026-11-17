@@ -11,6 +11,7 @@ dynamic = ["dependencies"]   # read from requirements.txt, the single list of di
 
 [project.scripts]
 guarded-ebay-mcp = "ebay_mcp.server:main"
+guarded-ebay-log-sales = "ebay_mcp.sales_log:main"
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["requirements.txt"] }

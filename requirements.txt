@@ -3,3 +3,4 @@ mcp>=2.3,<3            # official MCP Python SDK (FastMCP is named MCPServer in 
 httpx2>=2.13           # HTTP client; the same one the MCP SDK 2.x uses
 defusedxml>=0.7        # safe XML parsing for the Trading API
 PyJWT[crypto]>=2.8     # Google service account assertion, and JWT checks in remote mode
+tzdata>=2024.1         # time zone data; Windows has none built in (sale dates in the sheet's time zone)
